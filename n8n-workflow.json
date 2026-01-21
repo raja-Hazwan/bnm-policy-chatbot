@@ -1,0 +1,168 @@
+{
+  "name": "BNM Policy Document Sync",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "weeks",
+              "weekInterval": 1,
+              "triggerAtDay": [0]
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Weekly Schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [240, 300],
+      "notes": "Runs every Sunday at midnight"
+    },
+    {
+      "parameters": {
+        "command": "cd C:\\Projects\\bnm-policy-chatbot && .\\venv\\Scripts\\python.exe ingest.py"
+      },
+      "id": "execute-ingestion",
+      "name": "Run Playwright Ingestion",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [480, 300],
+      "notes": "Runs the full ingestion pipeline using Playwright to bypass AWS WAF"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse the ingestion output to check for success\nconst output = $input.first().json.stdout || '';\nconst stderr = $input.first().json.stderr || '';\n\n// Check for success indicators\nconst success = output.includes('Pipeline Complete') || output.includes('Total chunks');\nconst chunksMatch = output.match(/Total chunks.*?:\\s*(\\d+)/);\nconst docsMatch = output.match(/Downloaded\\s+(\\d+)\\s+documents/);\n\nreturn [{\n  json: {\n    success: success,\n    chunks_created: chunksMatch ? parseInt(chunksMatch[1]) : 0,\n    documents_downloaded: docsMatch ? parseInt(docsMatch[1]) : 0,\n    timestamp: new Date().toISOString(),\n    output: output.slice(-1000),\n    error: stderr ? stderr.slice(-500) : null\n  }\n}];"
+      },
+      "id": "parse-output",
+      "name": "Parse Ingestion Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [720, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.success }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "if-success",
+      "name": "Check Success",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [960, 300]
+    },
+    {
+      "parameters": {
+        "fromEmail": "notifications@yourserver.com",
+        "toEmail": "your-email@example.com",
+        "subject": "✓ BNM Policy Sync Complete",
+        "text": "Weekly BNM policy document sync completed successfully.\n\nTimestamp: {{ $json.timestamp }}\nDocuments downloaded: {{ $json.documents_downloaded }}\nChunks created: {{ $json.chunks_created }}\n\nThe chatbot is now updated with the latest BNM policies."
+      },
+      "id": "send-success-email",
+      "name": "Send Success Notification",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [1200, 200],
+      "notes": "Optional: Email notification on success"
+    },
+    {
+      "parameters": {
+        "fromEmail": "notifications@yourserver.com",
+        "toEmail": "your-email@example.com",
+        "subject": "✗ BNM Policy Sync Failed",
+        "text": "Weekly BNM policy document sync FAILED.\n\nTimestamp: {{ $json.timestamp }}\n\nError output:\n{{ $json.error }}\n\nLast output:\n{{ $json.output }}\n\nPlease check the ingestion script manually."
+      },
+      "id": "send-failure-email",
+      "name": "Send Failure Notification",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [1200, 400],
+      "notes": "Optional: Email notification on failure"
+    },
+    {
+      "parameters": {},
+      "id": "manual-trigger",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [240, 500],
+      "notes": "Use this to manually run the sync"
+    }
+  ],
+  "connections": {
+    "Weekly Schedule": {
+      "main": [
+        [
+          {
+            "node": "Run Playwright Ingestion",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Run Playwright Ingestion",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Playwright Ingestion": {
+      "main": [
+        [
+          {
+            "node": "Parse Ingestion Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Ingestion Result": {
+      "main": [
+        [
+          {
+            "node": "Check Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Success": {
+      "main": [
+        [
+          {
+            "node": "Send Success Notification",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Failure Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": ["automation", "bnm", "policy-sync", "playwright"]
+}
